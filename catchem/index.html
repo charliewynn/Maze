@@ -1,0 +1,419 @@
+<html>
+	<head>
+		<title>cWynn Game</title>
+		<script src="globals.js"/></script>
+		<script src="levels.js"></script>
+		<script src="worldobjs.js"></script>
+		<script type="text/javascript">
+//todo
+	//switches remain unlocked
+		function getLevel()	{ return levels[levelNDX]; }
+		
+		var canvas;
+		var context;	
+
+		var movementLock = 0;
+		var gameBoard = []; 
+		var player = new Player();
+		addPlayer();
+		
+		var players = [];
+		
+		function addPlayer()
+		{
+		  if (window.XMLHttpRequest) // code for IE7+, Firefox, Chrome, Opera, Safari
+		  {
+			xmlhttp=new XMLHttpRequest();
+		  }
+		  else // code for IE6, IE5
+		  {
+			xmlhttp=new ActiveXObject("Microsoft.XMLHTTP");
+		  }
+		  xmlhttp.onreadystatechange=function()
+		  {
+			if (xmlhttp.readyState==4 && xmlhttp.status==200)
+			{
+			  var result = xmlhttp.responseText;
+			  player.id = result;
+			}
+		  }
+		  xmlhttp.open("POST","addplayer.php",true);
+		  xmlhttp.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+		  xmlhttp.send("map="+levelNDX+"&x="+player.x_loc+"&y="+player.y_loc);
+		}
+		
+		function getPlayers()
+		{
+		  if (window.XMLHttpRequest) // code for IE7+, Firefox, Chrome, Opera, Safari
+		  {
+			xmlhttp=new XMLHttpRequest();
+		  }
+		  else // code for IE6, IE5
+		  {
+			xmlhttp=new ActiveXObject("Microsoft.XMLHTTP");
+		  }
+		  xmlhttp.onreadystatechange=function()
+		  {
+			if (xmlhttp.readyState==4 && xmlhttp.status==200)
+			{
+			  var result = xmlhttp.responseText;
+			  players = JSON.parse(result);
+			}
+		  }
+		  xmlhttp.open("POST","getplayers.php",true);
+		  xmlhttp.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+		  xmlhttp.send("id="+currentId+"&map="+levelNDX);
+		}
+		
+		function setObjectAndMove(thingToMove,newX,newY,deltaX,deltaY)
+		{
+			thingToMove.x_loc = newX;
+			thingToMove.y_loc = newY;
+			movementLock = 1;
+			setTimeout( function(){  move(thingToMove,newX+deltaX, newY+deltaY);  },100);
+		}
+
+		function move(thingToMove,newX,newY)
+		{
+			//can't go out of bounds
+			if(newY < 0 || newX < 0 || newY >= gameBoard.length || newX >= gameBoard[newY].length)
+			{
+				movementLock = 0;
+				return;
+			}
+			
+			//if level was reset return
+			if(movementLock == -1) return;
+						
+			//move to tile
+			var mtt = gameBoard[newY][newX];
+			
+			if(mtt.doorGoesTo != "")
+			{
+				var newWorld = levels[mtt.type];
+				for(var i=0; i<newWorld.length; ++i)
+				{
+					var row = newWorld[i];
+					for(var j=0; j<row.length; j++)
+					{
+						if(newWorld[i][j] == levelNDX)
+						{
+							player.x_loc = j;
+							player.y_loc = i;
+							levelNDX = mtt.type;
+							gameBoard = [];
+							for(var i=0; i<levels[levelNDX].length; ++i)
+							{
+								gameBoard[i] = [];
+								for(var j=0; j<levels[levelNDX][i].length; ++j)
+								{
+									gameBoard[i][j] = new Tile(levels[levelNDX][i][j]);
+								}
+							}
+						}
+					}
+				}
+				redraw();
+				return;
+			}
+			
+			if(mtt.isWall)
+			{
+				movementLock = 0;
+				return;
+			}
+			
+			if(mtt.isStatic)
+				movementLock = 0;
+
+			if(mtt.isStatic && DirCmp(mtt.direction, [0,0]))
+			{
+				thingToMove.x_loc = newX;
+				thingToMove.y_loc = newY;
+			}
+						
+			if(!mtt.isStatic)
+			{
+				redraw();
+				
+				if(DirCmp(mtt.direction, [0,0]))
+				{
+					if(thingToMove.x_loc < newX)
+					{		
+						setObjectAndMove(thingToMove,newX,newY,1,0);
+					}
+					else if(thingToMove.y_loc < newY)
+					{	
+						setObjectAndMove(thingToMove,newX,newY,0,1);
+					}
+					else if(thingToMove.x_loc > newX)
+					{
+						setObjectAndMove(thingToMove,newX,newY,-1,0);
+					}
+					else if(thingToMove.y_loc > newY)
+					{
+						setObjectAndMove(thingToMove,newX,newY,0,-1);
+					}
+				}
+			}
+			
+			if(mtt.isFinish && LocCmp(thingToMove.location, player.location))
+				restartGame();
+				
+			if(!mtt.isStatic && !DirCmp(mtt.direction, [0,0]))
+			{
+				thingToMove.x_loc = newX;
+				thingToMove.y_loc = newY;
+				movementLock = 1;
+				setTimeout(function(){move(thingToMove,newX + mtt.direction[0], newY+mtt.direction[1]);},100);
+			}
+			
+			redraw();
+		}
+
+		function restartGame()
+		{
+			player.x_loc = 5;
+			player.y_loc = 5;
+			gameBoard = [];
+			for(var i=0; i<levels[levelNDX].length; ++i)
+			{
+				gameBoard[i] = [];
+				for(var j=0; j<levels[levelNDX][i].length; ++j)
+				{
+					gameBoard[i][j] = new Tile(levels[levelNDX][i][j]);
+				}
+			}
+			movementLock = 0;
+		};
+			   
+		function keypressed(e)
+		{
+			if(e.keyCode == 32)
+			{
+				keyPress(32);
+			}
+			if(movementLock == 1)
+			{
+				return;
+			}
+			switch (e.keyCode)
+			{
+				case 37:
+					move(player,player.x_loc-1,player.y_loc);
+					break;
+				case 38:
+					move(player,player.x_loc,player.y_loc-1);
+					break;
+				case 39:
+					move(player,player.x_loc+1,player.y_loc);
+					break;
+				case 40:
+					move(player,player.x_loc,player.y_loc+1);
+					break;
+			}
+		}
+		
+		function keyPress(key)
+		{
+			if(key == 32)
+			{
+				movementLock = -1;
+				setTimeout(function(){movementLock = 0;},100);
+				player.x_loc = 0;
+				player.y_loc = 0;
+				redraw();
+			}
+			if(movementLock == 1) return;
+			switch (key)
+			{
+				case 37:
+					move(player,player.x_loc-1,player.y_loc);
+					break;
+				case 38:
+					move(player,player.x_loc,player.y_loc-1);
+					break;
+				case 39:
+					move(player,player.x_loc+1,player.y_loc);
+					break;
+				case 40:
+					move(player,player.x_loc,player.y_loc+1);
+					break;
+			}
+		}
+		
+		function didload()
+		{			
+			canvas = document.getElementById("theCanvas");
+			context = canvas.getContext("2d");	
+			document.onkeydown = keypressed;
+			gameBoard = [];
+			for(var i=0; i<levels[levelNDX].length; ++i)
+			{
+				gameBoard[i] = [];
+				for(var j=0; j<levels[levelNDX][i].length; ++j)
+				{
+					gameBoard[i][j] = new Tile(levels[levelNDX][i][j]);
+				}
+			}
+			redraw();
+		}
+
+		function drawCircle(x,y,radius,color)
+		{
+			context.beginPath();
+			context.fillStyle = color;
+			context.arc(x, y, radius, 0, Math.PI*2,false);
+			context.closePath();	
+			context.fill();
+		}
+		
+		function drawRect(x,y,width,height,color)
+		{
+			context.fillStyle = color;
+			context.fillRect(x,y, width, height);
+		}
+		
+		function drawText(x, y, text, color, font)
+		{
+			context.fillStyle = color;
+			context.font = typeof font == 'undefined' ? 'italic bold 15px sans-serif' : font;
+			context.textBaseline = 'bottom';
+			context.fillText(text, x, y);
+		};
+				
+		function redraw()
+		{								
+			//Draw Grey Background
+			context.fillStyle = lightgreyFill;
+			context.fillRect(startx,starty,width+startx,height+starty);
+			context.fill();
+			var block = {
+			 width:{},
+			 height:{}
+			};
+			var longestrowsize = 0;
+			for(var row = 0;row<gameBoard.length;++row)
+			{
+				if(gameBoard[row].length > longestrowsize)
+					longestrowsize = gameBoard[row].length;
+			}
+			block.width.value = width/longestrowsize;
+			block.height.value = height/gameBoard.length;
+
+			var names = {"q": 1/4, "h": 1/2, "tq": 3/4, "te": 11/32, "fe": 5/8};
+			for(var name in names)
+			{
+			  block.width[name] = block.width.value * names[name];
+			  block.height[name] = block.height.value * names[name];
+			}
+			
+			var smallestDimension = Math.min(block.width.value,block.height.value);
+
+			for(i=0; i<gameBoard.length;i++)
+			{
+				for(j=0; j<gameBoard[i].length;j++)
+				{						
+					var blockL = 1.5*startx+j*block.width.value;
+					var blockT = 1.5*starty+i*block.height.value;
+					var blockW = block.width.value-2;
+					var blockH = block.height.value-2;
+					
+					drawRect(blockL,blockT,blockW,blockH,redFill);
+					
+					switch (gameBoard[i][j].type)
+					{
+						case "1":
+							drawRect(blockL,blockT,blockW,blockH,blackFill);
+							break;
+						case "2":
+							drawCircle(blockL+block.width.h, blockT+block.height.h,smallestDimension/2, blueFill);
+							//drawRect(blockL,blockT,blockW,blockH,blackFill);
+							break;
+						case "3":
+						   for(var indx=0;indx<4;++indx)
+						   {
+							   for(var jndx=0;jndx<4;++jndx)
+							   {
+									if(jndx % 2 == indx % 2)
+										context.fillStyle = blackFill;
+									else
+										context.fillStyle = whiteFill;
+										
+									drawRect(blockL + block.width.q*jndx,
+									         blockT + block.height.q*indx,
+											 block.width.q,
+											 block.height.q,
+											 context.fillStyle);
+							   }
+						   }
+							break;
+						case "4":
+							drawRect(blockL,blockT,blockW,blockH,lightblueFill);
+							break;
+						case "0":
+							break;
+						case "a":
+							context.fillStyle = blueFill;
+							drawCircle(blockL+block.width.h, blockT+block.height.h,smallestDimension/2, blueFill);
+							drawText(blockL+block.width.te, blockT+block.height.tq, gameBoard[i][j].type, blackFill, '15px sans-serif');
+							break;
+						case "b":
+							context.fillStyle = blueFill;
+							drawCircle(blockL+block.width.h, blockT+block.height.h,smallestDimension/2, blueFill);
+							drawText(blockL+block.width.te, blockT+block.height.tq, gameBoard[i][j].type, blackFill, '15px sans-serif');
+							break;
+						case "c":
+							context.fillStyle = blueFill;
+							drawCircle(blockL+block.width.h, blockT+block.height.h,smallestDimension/2, blueFill);
+							drawText(blockL+block.width.te, blockT+block.height.tq, gameBoard[i][j].type, blackFill, '15px sans-serif');
+							break;
+						case "d":
+							context.fillStyle = blueFill;
+							drawCircle(blockL+block.width.h, blockT+block.height.h,smallestDimension/2, blueFill);
+							drawText(blockL+block.width.te, blockT+block.height.tq, gameBoard[i][j].type, blackFill, '15px sans-serif');
+							break;
+						case "e":
+							context.fillStyle = blueFill;
+							drawCircle(blockL+block.width.h, blockT+block.height.h,smallestDimension/2, blueFill);
+							drawText(blockL+block.width.te, blockT+block.height.tq, gameBoard[i][j].type, blackFill, '15px sans-serif');
+							break;
+						case "f":
+							context.fillStyle = blueFill;
+							drawCircle(blockL+block.width.h, blockT+block.height.h,smallestDimension/2, blueFill);
+							drawText(blockL+block.width.te, blockT+block.height.tq, gameBoard[i][j].type, blackFill, '15px sans-serif');
+							break;
+						default:
+							drawRect(blockL,blockT,blockW,blockH,blackFill);
+							break;
+					}
+				}
+			}	
+			
+			//context.save();
+			//context.rotate(Math.PI/2);
+			drawCircle(1.45*startx+block.width.value*(player.x_loc+.5), 1.45*starty+block.height.value*(player.y_loc+.5),smallestDimension/2, greenFill);
+			drawCircle(1.45*startx+block.width.value*(player.x_loc+.35), 1.45*starty+block.height.value*(player.y_loc+.35),4, whiteFill);
+			drawCircle(1.45*startx+block.width.value*(player.x_loc+.65), 1.45*starty+block.height.value*(player.y_loc+.35),4, whiteFill);
+			drawCircle(1.45*startx+block.width.value*(player.x_loc+.375), 1.45*starty+block.height.value*(player.y_loc+.375),2, blackFill);
+			drawCircle(1.45*startx+block.width.value*(player.x_loc+.625), 1.45*starty+block.height.value*(player.y_loc+.375),2, blackFill);
+			context.fillStyle = blackFill;
+			context.beginPath();
+			context.moveTo(1.45*startx+block.width.value*(player.x_loc+.4),1.45*starty+block.height.value*(player.y_loc+.6));
+			context.lineTo(1.45*startx+block.width.value*(player.x_loc+.4),1.45*starty+block.height.value*(player.y_loc+.7));
+			context.lineTo(1.45*startx+block.width.value*(player.x_loc+.6),1.45*starty+block.height.value*(player.y_loc+.7));
+			context.lineTo(1.45*startx+block.width.value*(player.x_loc+.6),1.45*starty+block.height.value*(player.y_loc+.6));
+			context.stroke();
+			//context.restore();
+		}
+	
+		</script>
+	</head>
+	<body onLoad="didload()">
+	<a href="/">cWynn Homepage</a> | <a href="..">Back To Maze</a>
+				<div align=center valign=center>
+						<b>Use Arrow Keys To Move</b></br>
+						<canvas id="theCanvas" width="495" height="495" style="background-color:lightgrey" >You need to use Firefox or Google Chrome to Play Marbles"</canvas>
+				</div>
+	</body>
+</html>
